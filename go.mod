@@ -1,0 +1,8 @@
+module gowhisper
+
+go 1.25.5
+
+require (
+	github.com/gen2brain/malgo v0.11.26 // indirect
+	github.com/yalue/onnxruntime_go v1.30.0 // indirect
+)
