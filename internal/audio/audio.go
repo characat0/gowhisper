@@ -3,7 +3,7 @@ package audio
 import (
 	"context"
 	"encoding/binary"
-	"gowhisper/internal/mel"
+	"github.com/characat0/gowhisper/internal/mel"
 	"log/slog"
 	"math"
 

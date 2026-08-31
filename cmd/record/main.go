@@ -10,8 +10,8 @@ import (
 	"os"
 	"time"
 
-	"gowhisper/internal/audio"
-	"gowhisper/internal/mel"
+	"github.com/characat0/gowhisper/internal/audio"
+	"github.com/characat0/gowhisper/internal/mel"
 )
 
 const outPath = "recording.wav"

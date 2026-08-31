@@ -23,9 +23,9 @@ import (
 
 	ort "github.com/yalue/onnxruntime_go"
 
-	"gowhisper"
-	"gowhisper/internal/audio"
-	"gowhisper/internal/mel"
+	"github.com/characat0/gowhisper"
+	"github.com/characat0/gowhisper/internal/audio"
+	"github.com/characat0/gowhisper/internal/mel"
 )
 
 const (

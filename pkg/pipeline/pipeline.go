@@ -1,16 +1,12 @@
-// Package gowhisper is the public API for the Whisper speech-to-text pipeline:
-// it wires the mel front-end, ONNX encoder/decoder, and tokenizer into a single
-// Pipeline that turns 16 kHz mono PCM into a transcript.
-package gowhisper
+package pipeline
 
 import (
 	"cmp"
 	"context"
 	"fmt"
-	"log/slog"
-
 	"github.com/characat0/gowhisper/internal/mel"
 	"github.com/characat0/gowhisper/pkg/model"
+	"log/slog"
 )
 
 type Pipeline struct {
@@ -39,7 +35,7 @@ func NewPipeline(
 		return nil, err
 	}
 	if tokenizer.VocabSize() != decoder.VocabSize {
-		return nil, fmt.Errorf("pipeline: vocab size mismatch, decoder has %d and tokenizer has %d", decoder.VocabSize, tokenizer.VocabSize())
+		return nil, fmt.Errorf("pipeline: vocab size missmatch, decoder has %d and tokenizer has %d", decoder.VocabSize, tokenizer.VocabSize())
 	}
 
 	return &Pipeline{
