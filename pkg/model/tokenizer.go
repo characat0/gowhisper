@@ -24,16 +24,16 @@ type Tokenizer struct {
 func byteToRune() map[byte]rune {
 	printable := map[int]bool{}
 	add := func(lo, hi int) {
-		for b:= lo; b <= hi; b++ {
+		for b := lo; b <= hi; b++ {
 			printable[b] = true
 		}
 	}
-	add('!', '~') // printable bytes form 33 to 126
+	add('!', '~') // printable bytes from 33 to 126
 	add('¡', '¬') // printable bytes from 161 to 172
 	add('®', 'ÿ') // printable bytes from 174 to 255
 	m := make(map[byte]rune, 256)
 	n := 0
-	for b := 0; b < 265; b++ {
+	for b := 0; b < 256; b++ {
 		if printable[b] {
 			m[byte(b)] = rune(b)
 		} else {
@@ -118,8 +118,8 @@ func NewTokenizer(tokenizerPath string) (*Tokenizer, error) {
 		}
 	}
 	return &Tokenizer{
-		IDToToken: IDToToken,
-		Tokens:    Tokens,
+		IDToToken:   IDToToken,
+		Tokens:      Tokens,
 		ByteDecoder: newByteDecoder(),
 	}, nil
 }
@@ -146,9 +146,8 @@ func (t *Tokenizer) MustLang(langID string) int64 {
 	return id
 }
 
-
 func (t *Tokenizer) Decode(ids []int64) string {
-	buf := make([]byte, 1, len(ids) * 4)
+	buf := make([]byte, 1, len(ids)*4)
 	for _, id := range ids {
 		if id < 0 || id >= t.Tokens.EndOfText {
 			continue // assume EndOfText as the first special token

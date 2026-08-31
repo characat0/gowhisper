@@ -11,11 +11,11 @@ import (
 type Decoder struct {
 	firstPassSession     *ort.DynamicAdvancedSession
 	recurrentPassSession *ort.DynamicAdvancedSession
-	VocabSize	int64
+	VocabSize            int64
 	mu                   sync.Mutex
 }
 
-// This only support a subset of Whisper models
+// This only supports a subset of Whisper models
 func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, error) {
 	// first pass model setup
 	firstPassOutputNames := []string{"logits"}
@@ -40,7 +40,7 @@ func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, er
 		return nil, err
 	}
 
-	// infering vocab size
+	// inferring vocab size
 	_, outputInfo, err := ort.GetInputOutputInfo(recurrentPassModelPath)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, er
 	if vocabSize == 0 {
 		return nil, fmt.Errorf("decoder: cannot infer vocab size from onnx model metadata")
 	}
-	
+
 	// recurrent model setup
 	recurrentPassInputNames := []string{"input_ids"}
 	recurrentPassOutputNames := []string{"logits"}
@@ -89,7 +89,7 @@ func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, er
 	return &Decoder{
 		firstPassSession:     firstPassSession,
 		recurrentPassSession: recurrentPassModelSession,
-		VocabSize: vocabSize,
+		VocabSize:            vocabSize,
 	}, nil
 }
 
@@ -107,18 +107,18 @@ type KVCache[T ort.TensorData] struct {
 	Layers []kvcachelayer[T]
 }
 
-func NewKVCacheFromArrays[T ort.TensorData](encodersKeys, encodersValues, decodersKeys, decodersValues []*ort.Tensor[T]) KVCache[T] {
+func NewKVCacheFromArrays[T ort.TensorData](encoderKeys, encoderValues, decoderKeys, decoderValues []*ort.Tensor[T]) KVCache[T] {
 	layers := []kvcachelayer[T]{}
 
-	for i := range len(encodersKeys) {
+	for i := range len(encoderKeys) {
 		layers = append(layers, kvcachelayer[T]{
 			Encoder: kv[T]{
-				Key:   encodersKeys[i],
-				Value: encodersValues[i],
+				Key:   encoderKeys[i],
+				Value: encoderValues[i],
 			},
 			Decoder: kv[T]{
-				Key:   decodersKeys[i],
-				Value: decodersValues[i],
+				Key:   decoderKeys[i],
+				Value: decoderValues[i],
 			},
 		})
 	}
@@ -128,26 +128,26 @@ func NewKVCacheFromArrays[T ort.TensorData](encodersKeys, encodersValues, decode
 	}
 }
 
-func (cache *KVCache[T]) UpdateDecoderArrays(decodersKeys, decodersValues []*ort.Tensor[T]) error {
-	if len(decodersKeys) != len(cache.Layers) {
-		return fmt.Errorf("decoder: size missmatch while updating decoder arrays, encountered %d but expected %d", len(cache.Layers), len(decodersKeys))
+func (cache *KVCache[T]) UpdateDecoderArrays(decoderKeys, decoderValues []*ort.Tensor[T]) error {
+	if len(decoderKeys) != len(cache.Layers) {
+		return fmt.Errorf("decoder: size mismatch while updating decoder arrays, encountered %d but expected %d", len(cache.Layers), len(decoderKeys))
 	}
-	for i := range len(decodersKeys) {
+	for i := range len(decoderKeys) {
 		d := cache.Layers[i].Decoder
 		d.Key.Destroy()
 		d.Value.Destroy()
 		cache.Layers[i].Decoder = kv[T]{
-			Key:   decodersKeys[i],
-			Value: decodersValues[i],
+			Key:   decoderKeys[i],
+			Value: decoderValues[i],
 		}
 	}
 	return nil
 }
 
 func (cache *KVCache[T]) ToValueArray() []ort.Value {
-	arr := make([]ort.Value, 0, len(cache.Layers) * 2 * 2)
+	arr := make([]ort.Value, 0, len(cache.Layers)*2*2)
 	for _, l := range cache.Layers {
-		arr = append(arr, 
+		arr = append(arr,
 			l.Decoder.Key,
 			l.Decoder.Value,
 			l.Encoder.Key,
@@ -203,14 +203,14 @@ func (d *Decoder) FirstPass(ctx context.Context, prompt []int64, hiddenState *or
 	}
 
 	logits := outputTensors[0]
-	decodersKeys := slice(outputTensors, 1, len(outputTensors), 4)
+	decoderKeys := slice(outputTensors, 1, len(outputTensors), 4)
 	decoderValues := slice(outputTensors, 2, len(outputTensors), 4)
 	encoderKeys := slice(outputTensors, 3, len(outputTensors), 4)
 	encoderValues := slice(outputTensors, 4, len(outputTensors), 4)
 	kvcache := NewKVCacheFromArrays(
 		encoderKeys,
 		encoderValues,
-		decodersKeys,
+		decoderKeys,
 		decoderValues,
 	)
 	return logits, &kvcache, nil
