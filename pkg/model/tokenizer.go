@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -122,6 +123,29 @@ func NewTokenizer(tokenizerPath string) (*Tokenizer, error) {
 		ByteDecoder: newByteDecoder(),
 	}, nil
 }
+
+func (t *Tokenizer) VocabSize() int64 {
+	return int64(len(t.IDToToken))
+}
+
+func (t *Tokenizer) Lang(langID string) (int64, error) {
+	langToken := fmt.Sprintf("<|%s|>", langID)
+	for i := t.Tokens.LangRangeStart; i < t.Tokens.LangRangeEnd; i++ {
+		if langToken == t.IDToToken[i] {
+			return i, nil
+		}
+	}
+	return 0, fmt.Errorf("tokenizer: language token for %s not found", langID)
+}
+
+func (t *Tokenizer) MustLang(langID string) int64 {
+	id, err := t.Lang(langID)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 
 func (t *Tokenizer) Decode(ids []int64) string {
 	buf := make([]byte, 1, len(ids) * 4)

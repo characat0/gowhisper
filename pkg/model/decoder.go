@@ -11,11 +11,13 @@ import (
 type Decoder struct {
 	firstPassSession     *ort.DynamicAdvancedSession
 	recurrentPassSession *ort.DynamicAdvancedSession
+	VocabSize	int64
 	mu                   sync.Mutex
 }
 
 // This only support a subset of Whisper models
 func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, error) {
+	// first pass model setup
 	firstPassOutputNames := []string{"logits"}
 	for i := range 6 {
 		// the first pass model outputs both encoder and decoder weights
@@ -37,6 +39,24 @@ func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, er
 	if err != nil {
 		return nil, err
 	}
+
+	// infering vocab size
+	_, outputInfo, err := ort.GetInputOutputInfo(recurrentPassModelPath)
+	if err != nil {
+		return nil, err
+	}
+	vocabSize := int64(0)
+	for _, o := range outputInfo {
+		if o.Name == "logits" {
+			// assuming the third dimension is vocab size and fixed
+			vocabSize = o.Dimensions[2]
+		}
+	}
+	if vocabSize == 0 {
+		return nil, fmt.Errorf("decoder: cannot infer vocab size from onnx model metadata")
+	}
+	
+	// recurrent model setup
 	recurrentPassInputNames := []string{"input_ids"}
 	recurrentPassOutputNames := []string{"logits"}
 	for i := range 6 {
@@ -65,9 +85,11 @@ func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, er
 	if err != nil {
 		return nil, err
 	}
+
 	return &Decoder{
 		firstPassSession:     firstPassSession,
 		recurrentPassSession: recurrentPassModelSession,
+		VocabSize: vocabSize,
 	}, nil
 }
 
@@ -133,6 +155,28 @@ func (cache *KVCache[T]) ToValueArray() []ort.Value {
 		)
 	}
 	return arr
+}
+
+func (cache *KVCache[T]) Destroy() (err error) {
+	for _, l := range cache.Layers {
+		err = l.Decoder.Key.Destroy()
+		if err != nil {
+			return
+		}
+		err = l.Decoder.Value.Destroy()
+		if err != nil {
+			return
+		}
+		err = l.Encoder.Key.Destroy()
+		if err != nil {
+			return
+		}
+		err = l.Encoder.Value.Destroy()
+		if err != nil {
+			return
+		}
+	}
+	return nil
 }
 
 func (d *Decoder) FirstPass(ctx context.Context, prompt []int64, hiddenState *ort.Tensor[float32]) (*ort.Tensor[float32], *KVCache[float32], error) {

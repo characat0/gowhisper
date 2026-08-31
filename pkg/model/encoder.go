@@ -10,7 +10,7 @@ import (
 
 type Encoder struct {
 	session *ort.DynamicAdvancedSession
-	nMels   int
+	NMels   int
 	mu      sync.Mutex
 }
 
@@ -35,17 +35,17 @@ func NewEncoder(modelPath string) (*Encoder, error) {
 	nMels := int(input.Dimensions[1])
 	return &Encoder{
 		session: session,
-		nMels:   nMels,
+		NMels:   nMels,
 	}, nil
 }
 
 func (e *Encoder) Encode(ctx context.Context, features []float32) (*ort.Tensor[float32], error) {
-	if len(features) == 0 || len(features)%e.nMels != 0 {
-		return nil, fmt.Errorf("model: %d features not divisible by nMels=%d", len(features), e.nMels)
+	if len(features) == 0 || len(features)%e.NMels != 0 {
+		return nil, fmt.Errorf("model: %d features not divisible by nMels=%d", len(features), e.NMels)
 	}
-	seqLen := len(features) / e.nMels
+	seqLen := len(features) / e.NMels
 
-	inputShape := ort.NewShape(1, int64(e.nMels), int64(seqLen))
+	inputShape := ort.NewShape(1, int64(e.NMels), int64(seqLen))
 	inputTensor, err := ort.NewTensor(inputShape, features)
 	if err != nil {
 		return nil, fmt.Errorf("model: create input tensor: %w", err)
