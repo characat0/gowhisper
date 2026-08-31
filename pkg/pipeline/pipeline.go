@@ -1,4 +1,4 @@
-package api
+package pipeline
 
 import (
 	"cmp"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"gowhisper/internal/mel"
 	"gowhisper/pkg/model"
+	"log/slog"
 )
 
 type Pipeline struct {
@@ -19,8 +20,9 @@ func NewPipeline(
 	decoderFirstModelPath,
 	decoderWithModelPath,
 	tokenizerPath string,
+	nMels int,
 ) (*Pipeline, error) {
-	encoder, err := model.NewEncoder(encoderPath)
+	encoder, err := model.NewEncoder(encoderPath, nMels)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +83,7 @@ func (p *Pipeline) Process(audio []float32) (string, error) {
 	}
 	kvcache.Destroy()
 
+	slog.Debug(fmt.Sprintf("inference tokens: %v", inferenceTokens))
 	transcript := p.tokenizer.Decode(inferenceTokens)
 	return transcript, nil
 }

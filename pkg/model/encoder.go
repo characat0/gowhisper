@@ -14,25 +14,15 @@ type Encoder struct {
 	mu      sync.Mutex
 }
 
-func NewEncoder(modelPath string) (*Encoder, error) {
+func NewEncoder(modelPath string, nMels int) (*Encoder, error) {
 	session, err := ort.NewDynamicAdvancedSession(
 		modelPath, []string{"input_features"}, []string{"last_hidden_state"}, nil,
 	)
 	if err != nil {
 		return nil, err
 	}
-	inputInfo, _, err := ort.GetInputOutputInfo(modelPath)
-	if err != nil {
-		return nil, err
-	}
-	// assuming single input for whisper versions up to August 2026
-	input := inputInfo[0]
-	if input.DataType != ort.TensorElementDataTypeFloat {
-		return nil, fmt.Errorf("model: unsupported input %q with type %v, only float32 is supported", input.Name, input.DataType)
-	}
 
 	// assuming shape (batch_size, feature_size, encoder_sequence_length)
-	nMels := int(input.Dimensions[1])
 	return &Encoder{
 		session: session,
 		NMels:   nMels,
@@ -40,10 +30,10 @@ func NewEncoder(modelPath string) (*Encoder, error) {
 }
 
 func (e *Encoder) Encode(ctx context.Context, features []float32) (*ort.Tensor[float32], error) {
-	if len(features) == 0 || len(features)%e.NMels != 0 {
+	if len(features) == 0 || len(features)%int(e.NMels) != 0 {
 		return nil, fmt.Errorf("model: %d features not divisible by nMels=%d", len(features), e.NMels)
 	}
-	seqLen := len(features) / e.NMels
+	seqLen := len(features) / int(e.NMels)
 
 	inputShape := ort.NewShape(1, int64(e.NMels), int64(seqLen))
 	inputTensor, err := ort.NewTensor(inputShape, features)

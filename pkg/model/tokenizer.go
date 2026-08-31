@@ -56,12 +56,12 @@ func newByteDecoder() map[rune]byte {
 func NewTokenizer(tokenizerPath string) (*Tokenizer, error) {
 	jsonTokenizer := struct {
 		Model struct {
-			Vocab map[string]int64
-		}
+			Vocab map[string]int64 `json:"vocab"`
+		} `json:"model"`
 		AddedTokens []struct {
-			ID      int64
-			Content string
-		}
+			ID      int64  `json:"id"`
+			Content string `json:"content"`
+		} `json:"added_tokens"`
 	}{}
 	data, err := os.ReadFile(tokenizerPath)
 	if err != nil {
