@@ -3,6 +3,8 @@ package model
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"sync"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -12,14 +14,47 @@ type Decoder struct {
 	firstPassSession     *ort.DynamicAdvancedSession
 	recurrentPassSession *ort.DynamicAdvancedSession
 	VocabSize            int64
+	NumLayers            int
 	mu                   sync.Mutex
 }
 
+// presentKeyRe matches ONNX KV-cache output names like "present.11.decoder.key",
+// capturing the layer index so we can count decoder layers from the graph metadata.
+var presentKeyRe = regexp.MustCompile(`^present\.(\d+)\.decoder\.key$`)
+
 // This only supports a subset of Whisper models
 func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, error) {
+	// The number of decoder layers and the vocab size vary by Whisper size
+	// (base=6, small=12, medium=24, ...); infer both from the recurrent model's
+	// I/O metadata rather than hardcoding them, so any exported Whisper works.
+	_, outputInfo, err := ort.GetInputOutputInfo(recurrentPassModelPath)
+	if err != nil {
+		return nil, err
+	}
+	vocabSize := int64(0)
+	numLayers := 0
+	for _, o := range outputInfo {
+		if o.Name == "logits" {
+			// assuming the third dimension is vocab size and fixed
+			vocabSize = o.Dimensions[2]
+			continue
+		}
+		if m := presentKeyRe.FindStringSubmatch(o.Name); m != nil {
+			// layer indices are 0-based, so the count is max index + 1
+			idx, _ := strconv.Atoi(m[1])
+			numLayers = max(numLayers, idx + 1)
+		}
+	}
+	if vocabSize == 0 {
+		return nil, fmt.Errorf("decoder: cannot infer vocab size from onnx model metadata")
+	}
+	if numLayers == 0 {
+		return nil, fmt.Errorf("decoder: cannot infer decoder layer count from onnx model metadata")
+	}
+
 	// first pass model setup
 	firstPassOutputNames := []string{"logits"}
-	for i := range 6 {
+	for i := range numLayers {
 		// the first pass model outputs both encoder and decoder weights
 		// the ordering is intentional to be able to slice them after inference
 		firstPassOutputNames = append(
@@ -40,26 +75,10 @@ func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, er
 		return nil, err
 	}
 
-	// inferring vocab size
-	_, outputInfo, err := ort.GetInputOutputInfo(recurrentPassModelPath)
-	if err != nil {
-		return nil, err
-	}
-	vocabSize := int64(0)
-	for _, o := range outputInfo {
-		if o.Name == "logits" {
-			// assuming the third dimension is vocab size and fixed
-			vocabSize = o.Dimensions[2]
-		}
-	}
-	if vocabSize == 0 {
-		return nil, fmt.Errorf("decoder: cannot infer vocab size from onnx model metadata")
-	}
-
 	// recurrent model setup
 	recurrentPassInputNames := []string{"input_ids"}
 	recurrentPassOutputNames := []string{"logits"}
-	for i := range 6 {
+	for i := range numLayers {
 		// inputs 2-25 are the recurrent decoder and encoder weights updated
 		recurrentPassInputNames = append(
 			recurrentPassInputNames,
@@ -90,6 +109,7 @@ func NewDecoder(firstPassModelPath, recurrentPassModelPath string) (*Decoder, er
 		firstPassSession:     firstPassSession,
 		recurrentPassSession: recurrentPassModelSession,
 		VocabSize:            vocabSize,
+		NumLayers:            numLayers,
 	}, nil
 }
 
@@ -186,7 +206,7 @@ func (d *Decoder) FirstPass(ctx context.Context, prompt []int64, hiddenState *or
 	}
 	defer inputIDsTensor.Destroy()
 
-	outputs := make([]ort.Value, 1+6*2*2) // 6 layers, decoder-encoder, key-value
+	outputs := make([]ort.Value, 1+d.NumLayers*2*2) // per layer: decoder+encoder, key+value
 	d.mu.Lock()
 	err = d.firstPassSession.Run([]ort.Value{inputIDsTensor, hiddenState}, outputs)
 	d.mu.Unlock()
@@ -222,7 +242,7 @@ func (d *Decoder) Step(ctx context.Context, latestToken int64, cache *KVCache[fl
 		return nil, nil, err
 	}
 	defer inputIDsTensor.Destroy()
-	outputs := make([]ort.Value, 1+6*2*1) // 6 layers, decoder only, key-value
+	outputs := make([]ort.Value, 1+d.NumLayers*2*1) // per layer: decoder only, key+value
 	d.mu.Lock()
 	err = d.recurrentPassSession.Run(
 		append([]ort.Value{inputIDsTensor}, cache.ToValueArray()...),
