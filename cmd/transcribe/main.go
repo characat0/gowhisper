@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"runtime"
 	"runtime/pprof"
 	"time"
@@ -71,9 +72,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("new pipeline: %v", err)
 	}
+	// bin/ currently holds CrisperWhisper weights; use the verbatim grammar so
+	// disfluencies ([UM], [laughter], …) are emitted. Drop this line (or use
+	// gowhisper.WhisperGrammar()) for stock Whisper weights.
+	pipeline.SetGrammar(gowhisper.CrisperVerbatimGrammar())
 
 	ctx, cancel := context.WithTimeout(context.Background(), *dur)
 	defer cancel()
+
+	// The model loads silently before this point, so emit an audible cue (macOS
+	// `say`) marking exactly when capture starts and stops — useful when stdout
+	// is buffered and not visible live.
 
 	fmt.Printf("Recording for %s...\n", *dur)
 	samples, err := audio.CaptureAudio(ctx)
