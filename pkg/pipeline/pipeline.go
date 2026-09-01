@@ -13,6 +13,7 @@ type Pipeline struct {
 	encoder   *model.Encoder
 	decoder   *model.Decoder
 	tokenizer *model.Tokenizer
+	grammar   Grammar
 }
 
 func NewPipeline(
@@ -39,25 +40,37 @@ func NewPipeline(
 	}
 
 	return &Pipeline{
-		encoder,
-		decoder,
-		tokenizer,
+		encoder:   encoder,
+		decoder:   decoder,
+		tokenizer: tokenizer,
+		grammar:   WhisperGrammar(),
 	}, nil
 }
 
-func (p *Pipeline) Process(audio []float32) (string, error) {
+// SetGrammar replaces the decoder-prompt grammar used by Process. The default is
+// WhisperGrammar(); pass CrisperVerbatimGrammar() (or your own) to change how the
+// prompt is built for the loaded checkpoint.
+func (p *Pipeline) SetGrammar(g Grammar) {
+	p.grammar = g
+}
+
+func (p *Pipeline) Process(audio []float32, opts ...Option) (string, error) {
 	ctx := context.TODO()
+	ro := RequestOptions{Language: "en"}
+	for _, o := range opts {
+		o(&ro)
+	}
+	// Build the prompt first: it's cheap and can fail (bad language, missing
+	// token), so failing here avoids leaking the encoder hidden-state tensor.
+	prompt, err := p.grammar.build(ro, p.tokenizer)
+	if err != nil {
+		return "", err
+	}
 	audio = mel.PadOrTrim(audio, mel.NSamples)
 	audio = mel.LogMelSpectrogram(audio, p.encoder.NMels, 0)
 	hState, err := p.encoder.Encode(ctx, audio)
 	if err != nil {
 		return "", err
-	}
-	prompt := []int64{
-		p.tokenizer.Tokens.StartOfTranscript,
-		p.tokenizer.MustLang("en"),
-		p.tokenizer.Tokens.Transcribe,
-		p.tokenizer.Tokens.NoTimestamps,
 	}
 	logits, kvcache, err := p.decoder.FirstPass(ctx, prompt, hState)
 	if err != nil {
