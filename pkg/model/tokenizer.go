@@ -4,19 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Tokenizer struct {
 	IDToToken []string
+	TokenToID map[string]int64
 	Tokens    struct {
 		EndOfText           int64
 		StartOfTranscript   int64
 		Transcribe          int64
 		NoTimestamps        int64
-		LangRangeStart      int64
-		LangRangeEnd        int64
-		TimestampRangeStart int64
-		TimestampRangeEnd   int64
 	}
 	ByteDecoder map[rune]byte
 }
@@ -80,45 +78,44 @@ func NewTokenizer(tokenizerPath string) (*Tokenizer, error) {
 		vocabSize = max(vocabSize, i)
 	}
 	IDToToken := make([]string, vocabSize+1)
+	TokenToID := map[string]int64{}
 	Tokens := struct {
 		EndOfText           int64
 		StartOfTranscript   int64
 		Transcribe          int64
 		NoTimestamps        int64
-		LangRangeStart      int64
-		LangRangeEnd        int64
-		TimestampRangeStart int64
-		TimestampRangeEnd   int64
 	}{}
 	// vocab tokens
 	for t, i := range jsonTokenizer.Model.Vocab {
 		IDToToken[i] = t
+		TokenToID[t] = i
 	}
 	// added special tokens
 	for _, v := range jsonTokenizer.AddedTokens {
 		IDToToken[v.ID] = v.Content
-		switch v.Content {
-		case "<|endoftext|>":
-			Tokens.EndOfText = v.ID
-		case "<|startoftranscript|>":
-			Tokens.StartOfTranscript = v.ID
-			// assuming that the language tokens start right after the SoT token
-			Tokens.LangRangeStart = v.ID + 1
-		case "<|transcribe|>":
-			Tokens.Transcribe = v.ID
-		case "<|notimestamps|>":
-			Tokens.NoTimestamps = v.ID
-			// assuming timestamp tokens start after NT token
-			Tokens.TimestampRangeStart = v.ID + 1
-			// assuming timestamp tokens run to the end of the vocab
-			Tokens.TimestampRangeEnd = int64(len(IDToToken))
-		case "<|translate|>":
-			// assuming that the language tokens end right before the translate token
-			Tokens.LangRangeEnd = v.ID - 1
-		}
+		TokenToID[v.Content] = v.ID
+	}
+	var ok bool
+	Tokens.EndOfText, ok = TokenToID["<|endoftext|>"]
+	if !ok {
+		return nil, fmt.Errorf("token <|endoftext|> not found in vocab")
+	}
+	Tokens.StartOfTranscript, ok = TokenToID["<|startoftranscript|>"]
+	if !ok {
+		return nil, fmt.Errorf("token <|startoftranscript|> not found in vocab")
+	}
+
+	Tokens.Transcribe, ok = TokenToID["<|transcribe|>"]
+	if !ok {
+		return nil, fmt.Errorf("token <|transcribe|> not found in vocab")
+	}
+	Tokens.NoTimestamps, ok = TokenToID["<|notimestamps|>"]
+	if !ok {
+		return nil, fmt.Errorf("token <|notimestamps|> not found in vocab")
 	}
 	return &Tokenizer{
 		IDToToken:   IDToToken,
+		TokenToID: TokenToID,
 		Tokens:      Tokens,
 		ByteDecoder: newByteDecoder(),
 	}, nil
@@ -128,14 +125,20 @@ func (t *Tokenizer) VocabSize() int64 {
 	return int64(len(t.IDToToken))
 }
 
-func (t *Tokenizer) Lang(langID string) (int64, error) {
-	langToken := fmt.Sprintf("<|%s|>", langID)
-	for i := t.Tokens.LangRangeStart; i < t.Tokens.LangRangeEnd; i++ {
-		if langToken == t.IDToToken[i] {
-			return i, nil
-		}
+func (t *Tokenizer) LookupToken(tok string) (int64, error) {
+	tokID, ok := t.TokenToID[tok]
+	if !ok {
+		return -1, fmt.Errorf("token %s not found", tok)
 	}
-	return 0, fmt.Errorf("tokenizer: language token for %s not found", langID)
+	return tokID, nil
+}
+
+func (t *Tokenizer) LookupControlToken(tok string) (int64, error) {
+	return t.LookupToken(fmt.Sprintf("<|%s|>", tok))
+}
+
+func (t *Tokenizer) Lang(langID string) (int64, error) {
+	return t.LookupControlToken(langID)
 }
 
 func (t *Tokenizer) MustLang(langID string) int64 {
@@ -146,11 +149,25 @@ func (t *Tokenizer) MustLang(langID string) int64 {
 	return id
 }
 
+func (t *Tokenizer) ShouldEmit(id int64) bool {
+	if id < 0 || id >= int64(len(t.IDToToken)) {
+		return false // out of array tokens
+	}
+	if id < t.Tokens.EndOfText {
+		return true // valid vocab tokens
+	}
+	tok := t.IDToToken[id]
+	if len(tok) >= 4 && strings.HasPrefix(tok, "<|") && strings.HasSuffix(tok, "|>") {
+		return false // control tokens, like <|transcribe|>
+	}
+	return true // everything else fail in favor
+}
+
 func (t *Tokenizer) Decode(ids []int64) string {
-	buf := make([]byte, 1, len(ids)*4)
+	buf := make([]byte, 0, len(ids)*4)
 	for _, id := range ids {
-		if id < 0 || id >= t.Tokens.EndOfText {
-			continue // assume EndOfText as the first special token
+		if !t.ShouldEmit(id) {
+			continue // skip token
 		}
 		for _, r := range t.IDToToken[id] {
 			buf = append(buf, t.ByteDecoder[r])
